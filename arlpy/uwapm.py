@@ -183,6 +183,12 @@ def check_env2d(env):
         return env
     except AssertionError as e:
         raise ValueError(e.args)
+        
+def get_env_file(env, path=""):
+    if len(path)==0:
+        raise ValueError("Please specify the destination path")
+    env = check_env2d(env)
+    
 
 def print_env(env):
     """Display the environment in a human readable form.
@@ -305,7 +311,7 @@ def plot_ssp(env, **kwargs):
     else:
         _plt.plot(svp[:,1], -svp[:,0], xlabel='Soundspeed (m/s)', ylabel='Depth (m)', **kwargs)
 
-def compute_arrivals(env, model=None, debug=False):
+def compute_arrivals(env, model='bellhop', debug=False):
     """Compute arrivals between each transmitter and receiver.
 
     :param env: environment definition
@@ -324,7 +330,7 @@ def compute_arrivals(env, model=None, debug=False):
         print('[DEBUG] Model: '+model_name)
     return model.run(env, arrivals, debug)
 
-def compute_eigenrays(env, tx_depth_ndx=0, rx_depth_ndx=0, rx_range_ndx=0, model=None, debug=False):
+def compute_eigenrays(env, tx_depth_ndx=0, rx_depth_ndx=0, rx_range_ndx=0, model='bellhop', debug=False):
     """Compute eigenrays between a given transmitter and receiver.
 
     :param env: environment definition
@@ -353,7 +359,7 @@ def compute_eigenrays(env, tx_depth_ndx=0, rx_depth_ndx=0, rx_range_ndx=0, model
         print('[DEBUG] Model: '+model_name)
     return model.run(env, eigenrays, debug)
 
-def compute_rays(env, tx_depth_ndx=0, model=None, debug=False):
+def compute_rays(env, tx_depth_ndx=0, model='bellhop', debug=False):
     """Compute rays from a given transmitter.
 
     :param env: environment definition
@@ -376,7 +382,7 @@ def compute_rays(env, tx_depth_ndx=0, model=None, debug=False):
         print('[DEBUG] Model: '+model_name)
     return model.run(env, rays, debug)
 
-def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model=None, debug=False):
+def compute_transmission_loss(env, tx_depth_ndx=0, mode=coherent, model='bellhop', debug=False):
     """Compute transmission loss from a given transmitter to all receviers.
 
     :param env: environment definition
@@ -576,11 +582,15 @@ class _Bellhop:
         pass
 
     def supports(self, env=None, task=None):
+        
         if env is not None and env['type'] != '2D':
             return False
+        if env is None:
+            raise ValueError("Please specify an .env file")
         fh, fname = _mkstemp(suffix='.env')
         _os.close(fh)
         fname_base = fname[:-4]
+        print("fname_base: ", fname_base)
         self._unlink(fname_base+'.env')
         rv = self._bellhop(fname_base)
         self._unlink(fname_base+'.prt')
@@ -696,7 +706,7 @@ class _Bellhop:
         self._print(fh, "%d" % (env['nbeams']))
         self._print(fh, "%0.6f %0.6f /" % (env['min_angle'], env['max_angle']))
         self._print(fh, "0.0 %0.6f %0.6f" % (1.01*max_depth, 1.01*_np.max(env['rx_range'])/1000))
-        _os.close(fh)
+        #_os.close(fh)
         return fname_base
 
     def _create_bty_ati_file(self, filename, depth, interp):
@@ -843,5 +853,73 @@ class _Bellhop:
                 temp = _np.array(_unpack('f'*2*nrr, f.read(2*nrr*4)))
                 pressure[ird,:] = temp[::2] + 1j*temp[1::2]
         return _pd.DataFrame(pressure, index=pos_r_depth, columns=pos_r_range)
+    
+class Environment(_Bellhop):
+    
+    def __init__(self):
+        super().__init__()
+        
+    def get_env_file(self, env, task, fname='temp_env', path='/'):
+        
+        taskmap = {
+            'arrivals':     ['A', self._load_arrivals],
+            'eigenrays':    ['E', self._load_rays],
+            'rays':         ['R', self._load_rays],
+            'coherent':     ['C', self._load_shd],
+            'incoherent':   ['I', self._load_shd],
+            'semicoherent': ['S', self._load_shd]
+        }
+        fname_base = self._create_env_file(env, taskmap[task][0], fname, path)
+        
+    def _create_env_file(self, env, taskcode, filename, path):
+        fh, fname = _mkstemp(prefix=filename, dir=path, suffix='.env')
+        fname_base = fname[:-4]
+        self._print(fh, "'"+env['name']+"'")
+        self._print(fh, "%0.6f" % (env['frequency']))
+        self._print(fh, "1")
+        svp = env['soundspeed']
+        svp_interp = 'S' if env['soundspeed_interp'] == 'spline' else 'C'
+        if isinstance(svp, _pd.DataFrame):
+            if len(svp.columns) > 1:
+                svp_interp = 'Q'
+            else:
+                svp = _np.hstack((_np.array([svp.index]).T, _np.asarray(svp)))
+        if env['surface'] is None:
+            self._print(fh, "'%cVWT'" % svp_interp)
+        else:
+            self._print(fh, "'%cVWT*'" % svp_interp)
+            self._create_bty_ati_file(fname_base+'.ati', env['surface'], env['surface_interp'])
+        max_depth = env['depth'] if _np.size(env['depth']) == 1 else _np.max(env['depth'][:,1])
+        self._print(fh, "1 0.0 %0.6f" % (max_depth))
+        if _np.size(svp) == 1:
+            self._print(fh, "0.0 %0.6f /" % (svp))
+            self._print(fh, "%0.6f %0.6f /" % (max_depth, svp))
+        elif svp_interp == 'Q':
+            for j in range(svp.shape[0]):
+                self._print(fh, "%0.6f %0.6f /" % (svp.index[j], svp.iloc[j,0]))
+            self._create_ssp_file(fname_base+'.ssp', svp)
+        else:
+            for j in range(svp.shape[0]):
+                self._print(fh, "%0.6f %0.6f /" % (svp[j,0], svp[j,1]))
+        depth = env['depth']
+        if _np.size(depth) == 1:
+            self._print(fh, "'A' %0.6f" % (env['bottom_roughness']))
+        else:
+            self._print(fh, "'A*' %0.6f" % (env['bottom_roughness']))
+            self._create_bty_ati_file(fname_base+'.bty', depth, env['depth_interp'])
+        self._print(fh, "%0.6f %0.6f 0.0 %0.6f %0.6f /" % (max_depth, env['bottom_soundspeed'], env['bottom_density']/1000, env['bottom_absorption']))
+        self._print_array(fh, env['tx_depth'])
+        self._print_array(fh, env['rx_depth'])
+        self._print_array(fh, env['rx_range']/1000)
+        if env['tx_directionality'] is None:
+            self._print(fh, "'"+taskcode+"'")
+        else:
+            self._print(fh, "'"+taskcode+" *'")
+            self._create_sbp_file(fname_base+'.sbp', env['tx_directionality'])
+        self._print(fh, "%d" % (env['nbeams']))
+        self._print(fh, "%0.6f %0.6f /" % (env['min_angle'], env['max_angle']))
+        self._print(fh, "0.0 %0.6f %0.6f" % (1.01*max_depth, 1.01*_np.max(env['rx_range'])/1000))
+        #_os.close(fh)
+        return fname_base
 
 _models.append(('bellhop', _Bellhop))

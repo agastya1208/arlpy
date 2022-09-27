@@ -15,14 +15,14 @@ docs:
 	cd build; zip -r ../dist/arlpy-docs.zip *
 
 install:
-	python setup.py install
+	python3 setup.py install
 
 testupload:
-	python setup.py sdist
+	python3 setup.py sdist
 	twine upload --repository pypitest dist/*
 
 upload:
-	python setup.py sdist
+	python3 setup.py sdist
 	twine upload --repository pypi dist/*
 
 clean:
