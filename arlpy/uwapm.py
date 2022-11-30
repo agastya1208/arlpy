@@ -354,6 +354,7 @@ def compute_eigenrays(env, tx_depth_ndx=0, rx_depth_ndx=0, rx_range_ndx=0, model
         env['rx_depth'] = env['rx_depth'][rx_depth_ndx]
     if _np.size(env['rx_range']) > 1:
         env['rx_range'] = env['rx_range'][rx_range_ndx]
+
     (model_name, model) = _select_model(env, eigenrays, model)
     if debug:
         print('[DEBUG] Model: '+model_name)
@@ -608,6 +609,7 @@ class _Bellhop:
         }
         fname_base = self._create_env_file(env, taskmap[task][0])
         results = None
+        self._bellhop(fname_base)
         if self._bellhop(fname_base):
             err = self._check_error(fname_base)
             if err is not None:
@@ -634,7 +636,7 @@ class _Bellhop:
 
     def _bellhop(self, *args):
         try:
-            _proc.call(['bellhop.exe'] + list(args), stderr=_proc.STDOUT)
+            _proc.call(['/home/agastya/Documents/at/Bellhop/bellhop.exe'] + list(args), stderr=_proc.STDOUT)
         except OSError:
             return False
         return True

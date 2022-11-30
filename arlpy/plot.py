@@ -57,7 +57,7 @@ def _new_figure(title, width, height, xlabel, ylabel, xlim, ylim, xtype, ytype, 
         interactive = _interactive
     if interactive:
         tools = 'pan,box_zoom,wheel_zoom,reset,save'
-    f = _bplt.figure(title=title, plot_width=width, plot_height=height, x_range=xlim, y_range=ylim, x_axis_label=xlabel, y_axis_label=ylabel, x_axis_type=xtype, y_axis_type=ytype, tools=tools)
+    f = _bplt.figure(title=title, width=width, height=height, x_axis_label=xlabel, y_axis_label=ylabel, x_axis_type=xtype, y_axis_type=ytype, tools=tools)
     f.toolbar.logo = None
     return f
 
